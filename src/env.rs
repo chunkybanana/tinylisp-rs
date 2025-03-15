@@ -1,10 +1,11 @@
 use itertools::{EitherOrBoth, Itertools};
+use nohash_hasher::IntMap;
 
 use crate::{
     builtins::{BUILTIN_LIST, BUILTINS},
     list::LinkedList,
     parse::{parse, tokenise},
-    value::{Builtin, Error, Value, ValueResult},
+    value::{Builtin, Error, STRING_INTERNER, Value, ValueResult, lookup_str},
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -28,7 +29,7 @@ pub struct EnvSettings {
     pub output: Box<dyn Output>,
 }
 
-type Dict = HashMap<&'static str, Value>;
+type Dict = IntMap<usize, Value>;
 pub struct Env {
     pub global_dict: Dict,
     local_scopes: Vec<Dict>, // literally a call stack
@@ -98,9 +99,12 @@ static STDLIB: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
 
 impl Env {
     pub fn build_global_dict() -> Dict {
-        let mut dict = HashMap::<&'static str, Value>::new();
+        let mut dict: IntMap<usize, Value> = IntMap::default();
+
         for (str, builtin, _fn) in BUILTIN_LIST {
-            dict.insert(*str, Value::from_builtin(*builtin));
+            let interned_ref =
+                STRING_INTERNER.with_borrow_mut(|interner| interner.string_to_ref(str.to_string()));
+            dict.insert(interned_ref, Value::from_builtin(*builtin));
         }
         dict
     }
@@ -180,13 +184,13 @@ impl Env {
         }
     }
 
-    fn lookup(&self, key: &'static str) -> ValueResult {
+    fn lookup(&self, key: usize) -> ValueResult {
         self.local_scopes
             .last()
-            .and_then(|dict| dict.get(key))
-            .or_else(|| self.global_dict.get(key))
+            .and_then(|dict| dict.get(&key))
+            .or_else(|| self.global_dict.get(&key))
             .map_or_else(
-                || Err(Error::VariableNotFound(key.to_owned())),
+                || Err(Error::VariableNotFound(lookup_str(key).to_string())),
                 |val| Ok(val.clone()),
             )
     }
@@ -194,7 +198,7 @@ impl Env {
     pub fn eval(&mut self, expr: &Value) -> ValueResult {
         let call = match expr {
             Value::Int(_) | Value::Builtin(_) => return Ok(expr.clone()),
-            Value::Name(str) => return self.lookup(str),
+            Value::Name(tag) => return self.lookup(*tag),
             Value::List(list) => Rc::deref(list),
         };
         let (head, tail) = match call {
@@ -281,7 +285,7 @@ impl Env {
 
     // Parse parameters and init the local dict for a function call
     fn get_local_dict(params: &Value, args: Vec<Value>) -> Result<Dict, Error> {
-        let mut local_dict = HashMap::<&'static str, Value>::new();
+        let mut local_dict: IntMap<usize, Value> = IntMap::default();
 
         match params {
             Value::Name(name) => {
@@ -402,6 +406,8 @@ impl Env {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use crate::{assert_eval, env::Env, eval, val, value::Value};
 
     use super::{DummyOutput, EnvSettings, WarningLevel};
@@ -450,6 +456,7 @@ mod tests {
 
     #[test]
     fn testcase_6() {
+        let now = Instant::now();
         let mut env = Env::new();
         eval!(env, (d nil ()));
         eval!(env, (d list (q (args args))));
@@ -542,6 +549,7 @@ mod tests {
             (map evenQ (list 0 1 2 3 14 159 2653 58979 323_846)),
             (1 0 1 0 1 0 0 0 1)
         );
+        println!("elapsed: {:.4?}", now.elapsed())
     }
 
     #[test]

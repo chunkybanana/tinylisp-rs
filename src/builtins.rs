@@ -3,7 +3,7 @@ use std::{collections::HashMap, rc::Rc, sync::LazyLock};
 use crate::{
     env::Env,
     list::LinkedList,
-    value::{Builtin, Error, Value, ValueResult},
+    value::{Builtin, Error, Value, ValueResult, lookup_str},
 };
 
 type BuiltinImpl = fn(&mut Env, &Rc<LinkedList>) -> ValueResult;
@@ -168,7 +168,7 @@ pub const BUILTIN_LIST: &[(&str, Builtin, BuiltinImpl)] = &[
         macro Def as d (env, name: str, value: any) => {
             let val = env.eval(value)?;
             env.global_dict.insert(*name, val);
-            Ok(Value::Name(name))
+            Ok(Value::Name(*name))
         }
     },
     builtin! {
@@ -183,7 +183,8 @@ pub const BUILTIN_LIST: &[(&str, Builtin, BuiltinImpl)] = &[
     },
     builtin! {
         fn Chars as chars (env, name: str) => {
-            Ok(Value::from_vec(&name.chars().map(|i| Value::from_int(i as i64)).collect::<Vec<_>>()))
+            let string = lookup_str(name);
+            Ok(Value::from_vec(&string.chars().map(|i| Value::from_int(i as i64)).collect::<Vec<_>>()))
         }
     },
     builtin! {

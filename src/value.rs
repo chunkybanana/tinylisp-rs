@@ -1,20 +1,21 @@
 #![allow(dead_code)]
 
+use refpool::Pool;
 use thiserror::Error;
 
 use crate::builtins::BUILTIN_LIST;
 use crate::list::LinkedList;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{self, Display};
 use std::ops::Deref;
 use std::rc::Rc;
-use std::sync::{LazyLock, Mutex};
 
 #[derive(Debug, PartialEq)]
 pub enum Value {
     Int(i64),
     List(Rc<LinkedList>),
-    Name(&'static str), // interned
+    Name(usize), // interned
     Builtin(Builtin),
 }
 
@@ -52,9 +53,48 @@ impl Display for Builtin {
         )
     }
 }
+// DIY string interning
+pub struct StringInterner {
+    str_refs: Vec<&'static str>, // map from int to str
+    string_to_int: HashMap<String, usize>,
+}
 
-pub static STRING_INTERNER: LazyLock<Mutex<HashMap<String, &'static str>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+impl StringInterner {
+    fn new() -> StringInterner {
+        StringInterner {
+            str_refs: vec![],
+            string_to_int: HashMap::new(),
+        }
+    }
+    pub fn string_to_ref(&mut self, str: String) -> usize {
+        if let Some(index) = self.string_to_int.get(&str) {
+            return *index;
+        }
+        let str_ref = &*str.clone().leak();
+        self.str_refs.push(str_ref);
+
+        let index = self.str_refs.len() - 1;
+        self.string_to_int.insert(str, index);
+        index
+    }
+    pub fn ref_to_string(&self, index: usize) -> &'static str {
+        self.str_refs[index]
+    }
+    pub fn add_string(&mut self, str: String) -> &'static str {
+        let index = self.string_to_ref(str);
+        self.str_refs[index]
+    }
+}
+
+// I apologise to the Rust gods
+thread_local! {
+    pub static STRING_INTERNER: RefCell<StringInterner> = RefCell::new(StringInterner::new());
+    pub static POOL: RefCell<Pool<Value>> = RefCell::new(Pool::new(1 << 21));
+}
+
+pub fn lookup_str(index: usize) -> &'static str {
+    STRING_INTERNER.with_borrow(|interner| interner.ref_to_string(index))
+}
 
 impl Value {
     pub fn from_int(int: i64) -> Value {
@@ -62,12 +102,7 @@ impl Value {
     }
 
     pub fn from_str(str: String) -> Value {
-        if let Some(ref_) = STRING_INTERNER.lock().unwrap().get(&str) {
-            return Value::Name(ref_);
-        }
-        let str_ref = &*str.clone().leak();
-        STRING_INTERNER.lock().unwrap().insert(str, str_ref);
-        Value::Name(str_ref)
+        Value::Name(STRING_INTERNER.with_borrow_mut(|interner| interner.string_to_ref(str)))
     }
 
     pub fn from_builtin(builtin: Builtin) -> Value {
@@ -118,7 +153,7 @@ impl Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Value::Int(int) => write!(f, "{int}"),
-            Value::Name(str) => write!(f, "{str}"),
+            Value::Name(str) => write!(f, "{}", lookup_str(*str)),
             Value::Builtin(builtin) => write!(f, "{builtin}"),
             Value::List(list) => {
                 write!(f, "(")?;
@@ -141,7 +176,7 @@ impl Clone for Value {
         match self {
             Value::Builtin(builtin) => Value::Builtin(*builtin),
             Value::Int(int) => Value::Int(*int),
-            Value::Name(str) => Value::Name(str),
+            Value::Name(str) => Value::Name(*str),
             Value::List(list) => Value::List(Rc::clone(list)),
         }
     }
