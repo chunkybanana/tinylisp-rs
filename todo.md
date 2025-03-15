@@ -1,0 +1,5 @@
+- [ ] CLI
+  - [ ] repl?
+- [ ] error case handling for function calls
+- [x] better errors - Error trait
+- [ ] module loading
