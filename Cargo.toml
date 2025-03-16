@@ -8,6 +8,9 @@ edition = "2024"
 [profile.release]
 debug = true
 
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+ tikv-jemallocator = "0.6"
+
 [dependencies]
 itertools = "0.14.0"
 nohash-hasher = "0.2.0"

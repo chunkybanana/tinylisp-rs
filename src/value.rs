@@ -1,6 +1,3 @@
-#![allow(dead_code)]
-
-use refpool::Pool;
 use thiserror::Error;
 
 use crate::builtins::BUILTIN_LIST;
@@ -89,7 +86,8 @@ impl StringInterner {
 // I apologise to the Rust gods
 thread_local! {
     pub static STRING_INTERNER: RefCell<StringInterner> = RefCell::new(StringInterner::new());
-    pub static POOL: RefCell<Pool<Value>> = RefCell::new(Pool::new(1 << 21));
+    /*
+    pub static POOL: RefCell<Pool<Value>> = RefCell::new(Pool::new(1 << 20));*/
 }
 
 pub fn lookup_str(index: usize) -> &'static str {

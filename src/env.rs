@@ -285,7 +285,7 @@ impl Env {
 
     // Parse parameters and init the local dict for a function call
     fn get_local_dict(params: &Value, args: Vec<Value>) -> Result<Dict, Error> {
-        let mut local_dict: IntMap<usize, Value> = IntMap::default();
+        let mut local_dict: Dict = IntMap::default();
 
         match params {
             Value::Name(name) => {
