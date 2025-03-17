@@ -15,9 +15,8 @@ static GLOBAL: Jemalloc = Jemalloc;
 
 mod builtins;
 mod env;
-mod list;
+mod packed_value;
 mod parse;
-mod value;
 
 fn main() {
     let args = args();

@@ -215,7 +215,7 @@ pub enum Error {
     ModuleNotFound { path: String, err: String },
 }
 
-#[macro_export]
+//#[macro_export]
 macro_rules! val {
     ($num:literal) => {
         Value::from_int($num)

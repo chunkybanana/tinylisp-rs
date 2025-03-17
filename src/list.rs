@@ -59,35 +59,6 @@ impl LinkedList {
         LinkedListIter { list: self }
     }
 }
-/*
-impl FromIterator<Value> for LinkedList {
-    fn from_iter<T: IntoIterator<Item = Value>>(iter: T) -> Self {
-        let mut iter = iter.into_iter();
-        // This is quite janky because it needs to mutate the current tail of the list as it goes
-        match iter.next() {
-            None => LinkedList::Nil,
-            Some(head) => {
-                let mut cons = Cons {
-                    head,
-                    tail: LinkedList::nil(),
-                };
-                let mut cur_cons = &mut cons;
-                for item in iter {
-                    let new_cons = Cons {
-                        head: item,
-                        tail: LinkedList::nil(),
-                    };
-                    cur_cons.tail = Rc::new(LinkedList::List(new_cons));
-                    cur_cons = match Rc::get_mut(&mut cur_cons.tail).unwrap() {
-                        LinkedList::Nil => panic!(),
-                        LinkedList::List(cons) => cons,
-                    }
-                }
-                LinkedList::List(cons)
-            }
-        }
-    }
-}*/
 
 struct LinkedListIter<'a> {
     list: &'a LinkedList,

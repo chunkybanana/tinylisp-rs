@@ -1,4 +1,4 @@
-use crate::{list::LinkedList, value::Value};
+use crate::packed_value::{LinkedList, PackedValue};
 use std::rc::Rc;
 
 pub fn parse(tokens: &mut impl Iterator<Item = String>) -> Rc<LinkedList> {
@@ -10,11 +10,11 @@ pub fn parse(tokens: &mut impl Iterator<Item = String>) -> Rc<LinkedList> {
                 return LinkedList::nil();
             }
             let element = if token == "(" {
-                Value::from_ll(parse(tokens))
+                PackedValue::from_ll(parse(tokens))
             } else {
                 match token.parse::<u64>() {
-                    Ok(i) => Value::from_int(i.try_into().unwrap()),
-                    Err(_) => Value::from_str(token.clone()),
+                    Ok(i) => PackedValue::from_int(i.try_into().unwrap()),
+                    Err(_) => PackedValue::from_str(token.clone()),
                 }
             };
             LinkedList::cons(&element, &parse(tokens))
@@ -61,7 +61,7 @@ mod tests {
     fn test_parse() {
         let mut tokens = tokenise("(c (1 2 3) (q (4 5 6))");
 
-        let ast = Value::from_ll(parse(&mut tokens));
+        let ast = PackedValue::from_ll(parse(&mut tokens));
 
         assert_eq!(ast, val!(((c (1 2 3) (q (4 5 6))))));
     }
