@@ -9,9 +9,10 @@ use crate::{
 };
 use std::{
     collections::{HashMap, HashSet},
+    env,
     fs::read_to_string,
     ops::Deref,
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
     sync::LazyLock,
 };
@@ -33,8 +34,8 @@ type Dict = IntMap<usize, Value>;
 pub struct Env {
     pub global_dict: Dict,
     local_scopes: Vec<Dict>, // literally a call stack
-    loaded_modules: HashSet<String>,
-    module_dir: PathBuf,
+    loaded_modules: HashSet<PathBuf>,
+    module_stack: Vec<PathBuf>,
     pub settings: EnvSettings,
 }
 
@@ -45,7 +46,7 @@ pub trait Output {
     }
 }
 
-struct DefaultOutput {}
+struct DefaultOutput;
 
 impl Output for DefaultOutput {
     fn print(&mut self, str: String) {
@@ -85,7 +86,7 @@ macro_rules! load_lib {
 
 static STDLIB: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
     HashMap::from([
-        ("library", include_str!("lib/library.tl")),
+        ("library.tl", include_str!("lib/library.tl")),
         load_lib!("lists"),
         load_lib!("long-names"),
         load_lib!("math"),
@@ -126,8 +127,8 @@ impl Env {
             global_dict: Self::build_global_dict(),
             settings,
             local_scopes: vec![],
-            loaded_modules: HashSet::<String>::new(),
-            module_dir: PathBuf::new(),
+            loaded_modules: HashSet::<PathBuf>::new(),
+            module_stack: vec![],
         }
     }
 
@@ -144,24 +145,48 @@ impl Env {
     }
 
     // the `load` builtin - eval the contents of a file
-    // the standard library is just statically linked
-    fn load_file(&mut self, path: String) {
+    // the standard library is just statically linked - we essentially
+    pub fn load_file(&mut self, path: String) -> Result<(), Error> {
+        //println!("loading {path}");
+
         if !path.ends_with(".tl") {
             return self.load_file(path + ".tl");
         }
 
-        if self.loaded_modules.contains(&path) {
-            return;
-        }
-        self.loaded_modules.insert(path.clone());
+        let default = &PathBuf::new();
+        let current_path = self.module_stack.last().unwrap_or(default);
 
-        if let Some(code) = STDLIB.get(path.as_str()) {
+        let full_path = Path::new(&current_path).join(&path);
+
+        if self.loaded_modules.contains(&full_path) {
+            return Ok(());
+        }
+        self.loaded_modules.insert(full_path.clone());
+
+        //println!("full path {full_path:?} {:?}", self.module_stack);
+
+        if let Some(code) = STDLIB.get(full_path.to_str().unwrap()) {
+            let parent = full_path.parent().unwrap(); // if this errors something has gone very wrong
+            self.module_stack.push(parent.to_path_buf());
             self.exec(code);
-            return;
+            self.module_stack.pop();
+            return Ok(());
         }
 
         // not in stdlib, load a file - relative to the current target directory
-        // if let Some(file) = read_to_string(path) {}
+
+        let new_path = env::current_dir().unwrap().join(full_path.clone());
+
+        match read_to_string(new_path) {
+            Ok(code) => {
+                self.exec(code.as_str());
+                Ok(())
+            }
+            Err(err) => Err(Error::ModuleNotFound {
+                path: full_path.to_string_lossy().to_string(),
+                err: err.to_string(),
+            }),
+        }
     }
 
     fn exec(&mut self, code: &str) {
@@ -169,11 +194,15 @@ impl Env {
         for expr in ast.iter() {
             match self.eval(expr) {
                 Ok(val) => {
+                    // and this is why I use nightly
                     if self.settings.suppress_top_level
                         && let Value::List(ll) = expr
                         && let LinkedList::List { head, tail: _ } = Rc::deref(ll)
                         && let Ok(Value::Builtin(builtin)) = self.eval(head)
-                        && matches!(builtin, Builtin::Def | Builtin::Disp)
+                        && matches!(
+                            builtin,
+                            Builtin::Def | Builtin::Disp | Builtin::Load | Builtin::Comment
+                        )
                     {
                     } else {
                         self.println(format!("{val}"));

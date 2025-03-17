@@ -16,6 +16,13 @@ pub enum Value {
     Builtin(Builtin),
 }
 
+/* hypothetical i62 interning:
+ - int: [sign] 0 0 [61 bit int] - so ints just work as normal
+ - name: [0] 0 1 [rest of tag - just start at 2^61]
+ - list: [bitwise fuckery]?
+ - builtin: [0] 0 1
+*/
+
 pub type ValueResult = Result<Value, Error>;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -35,6 +42,8 @@ pub enum Builtin {
     String,
     Disp,
     Type,
+    Load,
+    Comment,
 }
 
 impl Display for Builtin {
@@ -202,6 +211,8 @@ pub enum Error {
     _MalformedFunctionBody(String),
     #[error("function {name} is malformed: {error}")]
     MalformedFunctionBody { name: String, error: String },
+    #[error("error loading module {path}: {err}")]
+    ModuleNotFound { path: String, err: String },
 }
 
 #[macro_export]

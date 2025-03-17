@@ -201,7 +201,7 @@ pub const BUILTIN_LIST: &[(&str, Builtin, BuiltinImpl)] = &[
                         _ => Err(Error::BuiltinArgumentType(
                             format!("Cannot convert {val} to char, as it is of type {}", val.tl_type())
                         ))
-                    }).collect::<Result<String,Error>>()?)
+                    }).collect::<Result<String, Error>>()?)
             })
         }
     },
@@ -210,6 +210,15 @@ pub const BUILTIN_LIST: &[(&str, Builtin, BuiltinImpl)] = &[
             env.println(format!("{value}")); Ok(Value::nil())
         }
     },
+    builtin! {
+        macro Load as load (env, value: str) => {
+            match env.load_file(lookup_str(*value).to_string()) {
+                Ok(_) => Ok(Value::nil()),
+                Err(err) => Err(err)
+            }
+        }
+    },
+    ("comment", Builtin::Comment, |_env, _args| Ok(Value::nil())),
 ];
 
 pub static BUILTINS: LazyLock<HashMap<Builtin, BuiltinImpl>> = LazyLock::new(|| {
@@ -400,5 +409,40 @@ mod tests {
             "(q (1 2 (3) (4 q) hii))"
         );
         println!("{:?}", env.settings.output.get_output());
+    }
+
+    #[test]
+    fn load() {
+        let mut env = Env::new();
+
+        assert_eq!(
+            env.eval(&Value::from_vec(&[
+                val!(load),
+                Value::from_str("src/lib/lib_test".to_string())
+            ]))
+            .unwrap(),
+            val!(())
+        );
+
+        assert_eval!(env, test, testing);
+
+        assert_eq!(
+            env.eval(&val!((load nonexistent))).unwrap_err(),
+            Error::ModuleNotFound {
+                path: "nonexistent.tl".to_string(),
+                err: "No such file or directory (os error 2)".to_string()
+            }
+        );
+
+        // and also test stdlib
+        assert_eval!(env, (load library), ());
+        assert_eval!(env, tinylisp, awesome);
+    }
+
+    #[test]
+    fn comment() {
+        let mut env = Env::new();
+        assert_eval!(env, (comment ginger told me to write this), ());
+        assert_eval!(env, (comment (ginger is a cute catgirl)), ());
     }
 }
