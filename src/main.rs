@@ -1,6 +1,5 @@
 #![feature(let_chains)]
 #![feature(macro_metavar_expr)]
-#![allow(dead_code)]
 
 use std::env::args;
 

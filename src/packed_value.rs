@@ -1,5 +1,5 @@
-// _packed_ values are values that fit into a single 8-byte word, via liberal use of undefined behaviour.
-// Do not touch this code if you don't know what you're doing - this warning includes myself
+// _packed_ values are values that fit into a single 8-byte word, via liberal use of unsafe transmutations.
+// As such, touching this code without sufficient care may cause undefined behaviour, which may result in forcefem. Sorry!
 
 // Memory layout:
 // - Lists are stored as Rc<LinkedList>s, with top two bits as 0 (since they're smart pointers),
@@ -21,6 +21,8 @@ use std::{
 };
 
 use thiserror::Error;
+
+use crate::builtins::BUILTIN_LIST;
 
 //use crate::builtins::BUILTIN_LIST;
 
@@ -52,11 +54,11 @@ impl Display for Builtin {
         write!(
             f,
             "<built-in function {}>",
-            "" /*BUILTIN_LIST
-               .iter()
-               .find(|(_, builtin, _)| builtin == self)
-               .unwrap()
-               .0*/
+            BUILTIN_LIST
+                .iter()
+                .find(|(_, builtin, _)| builtin == self)
+                .unwrap()
+                .0
         )
     }
 }
@@ -115,12 +117,30 @@ const TYPE_NUM: u64 = 0b01 << 62;
 const TYPE_NAME: u64 = 0b10 << 62;
 const TYPE_BUILTIN: u64 = 0b11 << 62;
 
+// an enum would be more appropriate here, but would require even more transmutation
 const _TYPE_LIST: u8 = 0;
 const _TYPE_NUM: u8 = 1;
 const _TYPE_NAME: u8 = 2;
 const _TYPE_BUILTIN: u8 = 3;
 
+// the exact ordering of this is very important, as we perform transmutations to it for typecheck purposes
+#[repr(u8)]
+#[derive(PartialEq, Debug)]
+pub enum Type {
+    List,
+    Num,
+    Name,
+    Builtin,
+}
+
+// unique representation of 0, for truthiness checking
+const NUM_0: u64 = TYPE_NUM + (1 << 61);
+
 const BITMASK_TYPE: u64 = 0b11 << 62;
+
+// fun fact: since 00-tagged PackedValues are bitwise identical to Rc<LinkedList> pointers, they can never be null
+// so it is _theoretically_ possible to implement null pointer optimisation for lists here
+// there is no reason any sane individual would want to attempt this, but I think we're a bit past that point
 
 const TWO_POW_61: i64 = 1 << 61;
 const UNTAGGED_MASK: u64 = (1 << 62) - 1;
@@ -168,6 +188,10 @@ impl PackedValue {
         self.0 & BITMASK_TYPE == TYPE_BUILTIN
     }
 
+    pub fn is_truthy(&self) -> bool {
+        self.0 != NUM_0 && !self.is_nil()
+    }
+
     pub fn is_nil(&self) -> bool {
         self.is_list() && matches!(Rc::deref(self.to_ll_ref()), LinkedList::Nil)
     }
@@ -187,25 +211,23 @@ impl PackedValue {
         (self.0 & UNTAGGED_MASK) as usize
     }
 
-    fn _type(&self) -> u8 {
-        ((self.0 & BITMASK_TYPE) >> 62) as u8
+    pub fn _type(&self) -> Type {
+        unsafe { std::mem::transmute::<u8, Type>(((self.0 & BITMASK_TYPE) >> 62) as u8) }
     }
 
     pub fn tl_type(&self) -> &'static str {
         match self._type() {
-            _TYPE_BUILTIN => "builtin",
-            _TYPE_NUM => "int",
-            _TYPE_NAME => "name",
-            _TYPE_LIST => {
-                let rc = self.to_ll_unsafe();
-                let result = match *rc {
+            Type::Builtin => "builtin",
+            Type::Num => "int",
+            Type::Name => "name",
+            Type::List => {
+                let rc = self.to_ll_ref();
+                let result = match Rc::deref(rc) {
                     LinkedList::Nil => "nil",
                     LinkedList::List { .. } => "list",
                 };
-                Self::destroy_ll(rc);
                 result
             }
-            _ => panic!(), // if this fails I have created a 65-bit u64
         }
     }
     // consumes Self to yield a raw Rc
@@ -219,18 +241,6 @@ impl PackedValue {
     // in _theory_ the result here should live as long as self
     pub fn to_ll_ref<'a>(&'a self) -> &'a Rc<LinkedList> {
         unsafe { transmute::<&'a Self, &'a Rc<LinkedList>>(self) }
-    }
-
-    // This produces a bitwise copy without cloning the underlying Rc
-    // as such, the resulting Rc must be cleansed with salt and fire
-    // lest it destroy us all
-    pub fn to_ll_unsafe(&self) -> Rc<LinkedList> {
-        unsafe { transmute::<u64, Rc<LinkedList>>(self.0) }
-    }
-
-    // Take ownership of an Rc and destroy it without triggering its destructor
-    pub fn destroy_ll(rc: Rc<LinkedList>) {
-        let _int = unsafe { transmute::<Rc<LinkedList>, u64>(rc) };
     }
 
     pub fn to_builtin(&self) -> Builtin {
@@ -261,10 +271,10 @@ impl PartialEq for PackedValue {
 impl Display for PackedValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self._type() {
-            _TYPE_NUM => write!(f, "{}", self.to_int()),
-            _TYPE_NAME => write!(f, "{}", lookup_str(self.to_name())),
-            _TYPE_BUILTIN => write!(f, "{:?}", self.to_builtin()),
-            _TYPE_LIST => {
+            Type::Num => write!(f, "{}", self.to_int()),
+            Type::Name => write!(f, "{}", lookup_str(self.to_name())),
+            Type::Builtin => write!(f, "{}", self.to_builtin()),
+            Type::List => {
                 let mut iter = self.to_ll_ref().iter();
                 write!(f, "(")?;
                 if let Some(val) = iter.next() {
@@ -275,7 +285,6 @@ impl Display for PackedValue {
                 }
                 write!(f, ")")
             }
-            _ => todo!(),
         }
     }
 }
@@ -405,35 +414,9 @@ macro_rules! val {
 
 #[cfg(test)]
 mod tests {
-    use std::{mem::transmute, rc::Rc};
+    use std::rc::Rc;
 
     use super::*;
-    /*
-    #[test]
-    fn test() {
-        let rc = Rc::new(4u64);
-        let binary = unsafe { transmute::<Rc<u64>, u64>(Rc::clone(&rc)) };
-        let binary2 = unsafe { transmute::<Rc<u64>, u64>(rc) };
-        let binary3 = unsafe { transmute::<Builtin, u8>(Builtin::Load) };
-        let binary4 = unsafe { transmute::<i64, u64>(-5) };
-
-        let int = 5;
-        println!("{binary:b} {binary2:b} {binary3:b} {int:b} {binary4:b}")
-    }*/
-
-    /*#[test]
-    fn test_rc_drop() {
-        let rc = Rc::new(LinkedList::Nil);
-        println!("ref count: {}", Rc::strong_count(&rc));
-        let rc2 = rc.clone();
-        println!("ref count: {}", Rc::strong_count(&rc));
-        let val: PackedValue = PackedValue::from_ll(rc2);
-        println!("ref count: {}", Rc::strong_count(&rc));
-        let new_rc = val.to_ll();
-        println!("ref count: {}", Rc::strong_count(&rc));
-        drop(new_rc);
-        println!("ref count: {}", Rc::strong_count(&rc));
-    }*/
 
     #[test]
     fn test_values() {

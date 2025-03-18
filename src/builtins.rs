@@ -2,24 +2,39 @@ use std::{collections::HashMap, rc::Rc, sync::LazyLock};
 
 use crate::{
     env::Env,
-    packed_value::{Builtin, Error, LinkedList, PackedValue, ValueResult, lookup_str},
+    packed_value::{Builtin, Error, LinkedList, PackedValue, Type, ValueResult, lookup_str},
 };
 
 type BuiltinImpl = fn(&mut Env, &Rc<LinkedList>) -> ValueResult;
 
 /* they call me the ginger */
-macro_rules! arg_to_match {
-    ($name:ident, any) => {
+macro_rules! arg_to_unwrap {
+    ($name:expr, any) => {
         $name
     };
-    ($name:ident, int) => {
-        PackedValue::Int($name)
+    ($name:expr, int) => {
+        $name.to_int()
     };
-    ($name:ident, str) => {
-        PackedValue::Name($name)
+    ($name:expr, str) => {
+        $name.to_name()
     };
-    ($name:ident, list) => {
-        PackedValue::List($name)
+    ($name:expr, list) => {
+        $name.to_ll_ref()
+    };
+}
+
+macro_rules! arg_to_check {
+    ($name:expr, any) => {
+        true
+    };
+    ($name:expr, int) => {
+        $name.is_int()
+    };
+    ($name:expr, str) => {
+        $name.is_str()
+    };
+    ($name:expr, list) => {
+        $name.is_list()
     };
 }
 
@@ -84,8 +99,13 @@ macro_rules! builtin {
             // tuple access expressions are _incredibly_ janky
             let eval_args = ($(eval_builtin_arg!($f_type, $env, (args.${index()}) ${ignore($arg)}),)*);
 
-            if true && eval_args.1.is_list() {
-
+            if $(arg_to_check!(eval_args.${index()}, $type))&&* {
+                // damnit
+                /*let head = eval_args.0;
+                let tail = eval_args.1.to_ll_ref();*/
+                $(
+                    let $arg = arg_to_unwrap!(eval_args.${index()}, $type);
+                )*
                 $body
             } else {
                 Err(Error::BuiltinArgumentType(format!(
@@ -115,37 +135,37 @@ fn get_types(args: &[PackedValue]) -> String {
 pub const BUILTIN_LIST: &[(&str, Builtin, BuiltinImpl)] = &[
     builtin! {
         fn Cons as c (_env, head: any, tail: list) => {
-            Ok(PackedValue::from_ll(LinkedList::cons(&head, &tail)))
+            Ok(PackedValue::from_ll(LinkedList::cons(&head, tail)))
         }
     },
-    /*builtin! {
+    builtin! {
         fn Head as h (_env, list: list) => {
             Ok(list.head())
         }
     },
     builtin! {
         fn Tail as t (_env, list: list) => {
-            Ok(PackedValue::List(list.tail()))
+            Ok(PackedValue::from_ll(list.tail()))
         }
     },
     builtin! {
         fn Less as l (_env, int1: int, int2: int) => {
-            Ok(PackedValue::Int(i64::from(int1 < int2)))
+            Ok(PackedValue::from_int(i64::from(int1 < int2)))
         }
     },
     builtin! {
         fn Add as a (_env, int1: int, int2: int) => {
-            Ok(PackedValue::Int(int1 + int2))
+            Ok(PackedValue::from_int(int1 + int2))
         }
     },
     builtin! {
         fn Sub as s (_env, int1: int, int2: int) => {
-            Ok(PackedValue::Int(int1 - int2))
+            Ok(PackedValue::from_int(int1 - int2))
         }
     },
     builtin! {
         fn Eq as e (_env, val1: any, val2: any) => {
-            Ok(PackedValue::Int(i64::from(val1 == val2)))
+            Ok(PackedValue::from_int(i64::from(val1 == val2)))
         }
     },
     builtin! {
@@ -167,17 +187,17 @@ pub const BUILTIN_LIST: &[(&str, Builtin, BuiltinImpl)] = &[
     builtin! {
         macro Def as d (env, name: str, value: any) => {
             let val = env.eval(value)?;
-            env.global_dict.insert(*name, val);
-            Ok(PackedValue::Name(*name))
+            env.global_dict.insert(name, val);
+            Ok(PackedValue::from_name(name))
         }
     },
     builtin! {
         fn Type as type (env, value: any) => {
-            Ok(PackedValue::from_str(match value {
-                PackedValue::Int(_) => "Int",
-                PackedValue::Name(_) => "Name",
-                PackedValue::List(_) => "List",
-                PackedValue::Builtin(_) => "Builtin"
+            Ok(PackedValue::from_str(match value._type() {
+                Type::Num => "Int",
+                Type::Name => "Name",
+                Type::List => "List",
+                Type::Builtin => "Builtin"
             }.to_owned()))
         }
     },
@@ -189,15 +209,16 @@ pub const BUILTIN_LIST: &[(&str, Builtin, BuiltinImpl)] = &[
     },
     builtin! {
         fn String as string (env, value: any) => {
-            Ok(match value {
-                PackedValue::Name(_) => value,
-                PackedValue::Int(int) => PackedValue::from_str(int.to_string()),
-                PackedValue::Builtin(_) => PackedValue::from_str(format!("{value}")),
-                PackedValue::List(list) =>
-                    PackedValue::from_str(list.iter().map(|val| match val {
-                        PackedValue::Int(i) => u32::try_from(*i).ok()
+            Ok(match value._type() {
+                Type::Name => value,
+                Type::Num => PackedValue::from_str(value.to_int().to_string()),
+                Type::Builtin => PackedValue::from_str(format!("{value}")),
+                Type::List =>
+                    // beautiful
+                    PackedValue::from_str(value.to_ll_ref().iter().map(|val| match val._type() {
+                        Type::Num => u32::try_from(val.to_int()).ok()
                             .and_then(char::from_u32)
-                            .map_or_else(|| Err(Error::BuiltinArgumentType(format!("Cannot convert int {i} to char"))), Ok),
+                            .map_or_else(|| Err(Error::BuiltinArgumentType(format!("Cannot convert int {} to char", val.to_int()))), Ok),
                         _ => Err(Error::BuiltinArgumentType(
                             format!("Cannot convert {val} to char, as it is of type {}", val.tl_type())
                         ))
@@ -209,18 +230,18 @@ pub const BUILTIN_LIST: &[(&str, Builtin, BuiltinImpl)] = &[
         fn Disp as disp (env, value: any) => {
             env.println(format!("{value}")); Ok(PackedValue::nil())
         }
-    },
-    builtin! {
-        macro Load as load (env, value: str) => {
-            match env.load_file(lookup_str(*value).to_string()) {
-                Ok(_) => Ok(PackedValue::nil()),
-                Err(err) => Err(err)
-            }
-        }
-    },
+    }, /*
+       builtin! {
+           macro Load as load (env, value: str) => {
+               match env.load_file(lookup_str(*value).to_string()) {
+                   Ok(_) => Ok(PackedValue::nil()),
+                   Err(err) => Err(err)
+               }
+           }
+       },*/
     ("comment", Builtin::Comment, |_env, _args| {
         Ok(PackedValue::nil())
-    }),*/
+    }),
 ];
 
 pub static BUILTINS: LazyLock<HashMap<Builtin, BuiltinImpl>> = LazyLock::new(|| {
@@ -253,7 +274,7 @@ mod tests {
         val,
     };
 
-    /*#[test]
+    #[test]
     fn cons() {
         let mut env = Env::new();
         assert_eval!(env, (c 5 ()), (5));
@@ -392,7 +413,10 @@ mod tests {
     fn string() {
         let mut env = Env::new();
         assert_eq!(format!("{}", eval!(env, q)), "<built-in function q>");
-        assert_eq!(eval!(env, (string 423)), PackedValue::from_str("423".to_owned()));
+        assert_eq!(
+            eval!(env, (string 423)),
+            PackedValue::from_str("423".to_owned())
+        );
 
         assert_eval!(env, (string (q q)), q);
         assert_eval!(env, (string (q (97 98 99))), abc);
@@ -412,7 +436,7 @@ mod tests {
         );
         println!("{:?}", env.settings.output.get_output());
     }
-
+    /*
     #[test]
     fn load() {
         let mut env = Env::new();
@@ -439,12 +463,12 @@ mod tests {
         // and also test stdlib
         assert_eval!(env, (load library), ());
         assert_eval!(env, tinylisp, awesome);
-    }
+    }*/
 
     #[test]
     fn comment() {
         let mut env = Env::new();
         assert_eval!(env, (comment ginger told me to write this), ());
         assert_eval!(env, (comment (ginger is a cute catgirl)), ());
-    }*/
+    }
 }

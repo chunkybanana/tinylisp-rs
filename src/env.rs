@@ -3,8 +3,9 @@ use nohash_hasher::IntMap;
 
 use crate::{
     //builtins::{BUILTIN_LIST, BUILTINS},
+    builtins::{BUILTIN_LIST, BUILTINS},
     packed_value::{
-        Builtin, Error, LinkedList, PackedValue, STRING_INTERNER, ValueResult, lookup_str,
+        Builtin, Error, LinkedList, PackedValue, STRING_INTERNER, Type, ValueResult, lookup_str,
     },
     parse::{parse, tokenise},
 };
@@ -103,11 +104,11 @@ impl Env {
     pub fn build_global_dict() -> Dict {
         let mut dict: Dict = IntMap::default();
 
-        /*for (str, builtin, _fn) in BUILTIN_LIST {
+        for (str, builtin, _fn) in BUILTIN_LIST {
             let interned_ref =
                 STRING_INTERNER.with_borrow_mut(|interner| interner.string_to_ref(str.to_string()));
             dict.insert(interned_ref, PackedValue::from_builtin(*builtin));
-        }*/
+        }
         dict
     }
 
@@ -192,16 +193,18 @@ impl Env {
 
     fn exec(&mut self, code: &str) {
         let ast = parse(&mut tokenise(code));
-        /*for expr in ast.iter() {
+        for expr in ast.iter() {
             match self.eval(expr) {
                 Ok(val) => {
                     // and this is why I use nightly
                     if self.settings.suppress_top_level
-                        && let PackedValue::List(ll) = expr
+                        && expr.is_list()
+                        && let ll = expr.to_ll_ref()
                         && let LinkedList::List { head, tail: _ } = Rc::deref(ll)
-                        && let Ok(PackedValue::Builtin(builtin)) = self.eval(head)
+                        && let Ok(result) = self.eval(head)
+                        && result.is_builtin()
                         && matches!(
-                            builtin,
+                            result.to_builtin(),
                             Builtin::Def | Builtin::Disp | Builtin::Load | Builtin::Comment
                         )
                     {
@@ -211,7 +214,7 @@ impl Env {
                 }
                 Err(err) => self.println(format!("{err:?}")),
             }
-        }*/
+        }
     }
 
     fn lookup(&self, key: usize) -> ValueResult {
@@ -281,8 +284,7 @@ impl Env {
     }
 
     fn call_builtin(&mut self, builtin: Builtin, raw_args: &Rc<LinkedList>) -> ValueResult {
-        todo!()
-        //BUILTINS.get(&builtin).unwrap()(self, raw_args)
+        BUILTINS.get(&builtin).unwrap()(self, raw_args)
     }
 
     // Gets the relevant parameters to call a user-defined function
@@ -326,27 +328,27 @@ impl Env {
 
     // Parse parameters and init the local dict for a function call
     fn get_local_dict(params: &PackedValue, args: Vec<PackedValue>) -> Result<Dict, Error> {
-        todo!();
-
         let mut local_dict: Dict = IntMap::default();
-        /*
-        match params {
-            PackedValue::Name(name) => {
-                local_dict.insert(*name, PackedValue::from_vec(&args));
+
+        match params._type() {
+            Type::Name => {
+                local_dict.insert(params.to_name(), PackedValue::from_vec(&args));
             }
-            PackedValue::List(list) => {
+            Type::List => {
+                let list = params.to_ll_ref();
                 let arg_count = args.len();
                 for val in list.iter().zip_longest(args) {
                     match val {
-                        EitherOrBoth::Both(name, param) => match name {
-                            PackedValue::Name(str) => {
-                                local_dict.insert(*str, param.clone());
+                        EitherOrBoth::Both(name, param) => {
+                            if name.is_str() {
+                                local_dict.insert(name.to_name(), param.clone());
+                            } else {
+                                Err(Error::_FunctionCall(format!(
+                                    "malformed parameters: expected str, was {}",
+                                    name.tl_type()
+                                )))?
                             }
-                            _ => Err(Error::_FunctionCall(format!(
-                                "malformed parameters: expected str, was {}",
-                                name.tl_type()
-                            )))?,
-                        },
+                        }
                         _ => {
                             Err(Error::_FunctionCall(format!(
                                 "wrong number of args passed: expected {}, got {}",
@@ -363,17 +365,17 @@ impl Env {
             )))?,
         }
 
-        Ok(local_dict)*/
+        Ok(local_dict)
     }
 
+    // Inlining this is fairly consistently slower. I have no idea why
     fn call_function(
         &mut self,
         mut function: Rc<LinkedList>,
         mut raw_args: Rc<LinkedList>,
     ) -> ValueResult {
         let mut in_tail_call = false;
-        todo!();
-        /*
+
         // When we reach the point where we want to perform a tail call, we continue and return to this point
         'tco: loop {
             let (params, mut body, args) = self.call_info(&function, &raw_args)?;
@@ -390,18 +392,21 @@ impl Env {
             // Eliminate if / evals from the body
             'elim: loop {
                 // if we hit a function call, eval the function and check
-                if let PackedValue::List(f_call) = &body
+                if body.is_list()
+                    && let f_call = body.to_ll_ref()
                     && let LinkedList::List { head, tail } = Rc::deref(f_call)
                 {
                     let func = self.eval(head)?;
                     let fn_args = tail;
 
-                    if let PackedValue::List(func) = func {
+                    if func.is_list() {
                         // user-defined function - attempt to perform a tail call
-                        function = func;
+                        // here we do want to take ownership of the ll, destroying the PackedValue - so use into_ll
+                        function = func.into_ll();
                         raw_args = Rc::clone(fn_args);
                         continue 'tco;
-                    } else if let PackedValue::Builtin(builtin) = func {
+                    } else if func.is_builtin() {
+                        let builtin = func.to_builtin();
                         if builtin == Builtin::If {
                             // due to various nonsense with the generated iterator somehow being owned by body - even though
                             // it really shouldn't, considering it's behind a Rc - body needs to be assigned after
@@ -445,7 +450,6 @@ impl Env {
             self.local_scopes.pop();
             return ret;
         }
-        */
     }
 }
 
@@ -457,7 +461,7 @@ mod tests {
 
     use super::{DummyOutput, EnvSettings, WarningLevel};
 
-    /*#[test]
+    #[test]
     fn test_user_fns() {
         let mut env = Env::new();
 
@@ -591,7 +595,7 @@ mod tests {
 
         assert_eval!(
             env,
-            (map evenQ (list 0 1 2 3 14 159 2653 58979 323_846)),
+            (map evenQ (list 0 1 2 3 14 159 2653 58979 4_323_846)),
             (1 0 1 0 1 0 0 0 1)
         );
         println!("elapsed: {:.4?}", now.elapsed())
@@ -658,5 +662,5 @@ mod tests {
         env.exec("(c 5 (c 0 4))");
 
         assert_eq!(env.settings.output.get_output(), vec!["(5)"]);
-    }*/
+    }
 }
