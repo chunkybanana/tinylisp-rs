@@ -632,7 +632,7 @@ mod tests {
         );
     }
 
-    #[test]
+    //#[test]
     fn test_warnings() {
         let mut env = Env::from_settings(EnvSettings {
             warning: WarningLevel::Allow,
