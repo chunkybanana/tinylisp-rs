@@ -595,7 +595,7 @@ mod tests {
 
         assert_eval!(
             env,
-            (map evenQ (list 0 1 2 3 14 159 2653 58979 4_323_846)),
+            (map evenQ (list 0 1 2 3 14 159 2653 58979 323_846)),
             (1 0 1 0 1 0 0 0 1)
         );
         println!("elapsed: {:.4?}", now.elapsed())

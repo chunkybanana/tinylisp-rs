@@ -19,3 +19,6 @@ Command-line options:
   - `strict` halts the program if any errors occur
 - `-c`, `--code`: Takes a literal string of code as input
 - `-T`, `--top-level-output`: Makes certain builtins - load, disp, def, comment - output at the top level when they would otherwise be suppressed
+
+Even with intmaps, hashmap lookups and creation is still taking up a huge amount of the runtime
+and from the flamegraph it looks like 

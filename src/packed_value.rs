@@ -89,10 +89,10 @@ impl StringInterner {
     pub fn ref_to_string(&self, index: usize) -> &'static str {
         self.str_refs[index]
     }
-    pub fn add_string(&mut self, str: String) -> &'static str {
+    /*pub fn add_string(&mut self, str: String) -> &'static str {
         let index = self.string_to_ref(str);
         self.str_refs[index]
-    }
+    }*/
 }
 
 // I apologise to the Rust gods
