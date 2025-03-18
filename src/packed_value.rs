@@ -3,13 +3,10 @@
 
 // Memory layout:
 // - Lists are stored as Rc<LinkedList>s, with top two bits as 0 (since they're smart pointers),
-// - i64s are stored as bits 01 followed by the int plus 2^61 - allowing -2^61 .. 2^61-1
-// - Names are stored as the usual underlying usize, with bit pattern x01xxxx... This really doesn't matter.
 //   so they can just be transmuted directly into Rcs and manipulated as such.
-
-// We can't quite get away with directly bit-copying these - as that wouldn't update the Rcs - but we can get very close.
-// To clone a PackedValue, all we need to do is check if the underlying representation is an Rc, and if so transmute that and clone it
-// then copy the bits directly
+// - i64s are stored as bits 01 followed by the int plus 2^61 - allowing -2^61 .. 2^61-1
+// - Names are stored as bits 10 followed by a 62-bit usize - not that it matters much
+// - Builtins are stored as bits 11 followed by an enum member. this is overkill
 
 use std::{
     cell::RefCell,
@@ -23,8 +20,6 @@ use std::{
 use thiserror::Error;
 
 use crate::builtins::BUILTIN_LIST;
-
-//use crate::builtins::BUILTIN_LIST;
 
 pub type ValueResult = Result<PackedValue, Error>;
 
@@ -62,6 +57,7 @@ impl Display for Builtin {
         )
     }
 }
+
 // DIY string interning
 pub struct StringInterner {
     str_refs: Vec<&'static str>, // map from int to str
@@ -89,10 +85,6 @@ impl StringInterner {
     pub fn ref_to_string(&self, index: usize) -> &'static str {
         self.str_refs[index]
     }
-    /*pub fn add_string(&mut self, str: String) -> &'static str {
-        let index = self.string_to_ref(str);
-        self.str_refs[index]
-    }*/
 }
 
 // I apologise to the Rust gods
@@ -116,12 +108,6 @@ const TYPE_LIST: u64 = 0;
 const TYPE_NUM: u64 = 0b01 << 62;
 const TYPE_NAME: u64 = 0b10 << 62;
 const TYPE_BUILTIN: u64 = 0b11 << 62;
-
-// an enum would be more appropriate here, but would require even more transmutation
-const _TYPE_LIST: u8 = 0;
-const _TYPE_NUM: u8 = 1;
-const _TYPE_NAME: u8 = 2;
-const _TYPE_BUILTIN: u8 = 3;
 
 // the exact ordering of this is very important, as we perform transmutations to it for typecheck purposes
 #[repr(u8)]
@@ -233,7 +219,7 @@ impl PackedValue {
     // consumes Self to yield a raw Rc
     // When an Rc is transmuted into a PackedValue, it is not dropped, and this returns the underlying Rc
     // As such, using these methods is safe, but performing a bitwise copy and then transmuting both back to Rcs
-    // will result in the reference counter underflowing. this is probably a bad thing
+    // will result in the reference counter underflowing when dropped. this is probably a bad thing
     pub fn into_ll(self) -> Rc<LinkedList> {
         unsafe { transmute::<Self, Rc<LinkedList>>(self) }
     }
@@ -248,6 +234,10 @@ impl PackedValue {
         unsafe { transmute::<u8, Builtin>(self.0 as u8) }
     }
 }
+
+// We can't quite get away with directly bit-copying these - as that wouldn't update the Rcs - but we can get very close.
+// To clone a PackedValue, all we need to do is check if the underlying representation is an Rc, and if so transmute that and clone it
+// then copy the bits directly
 
 impl Clone for PackedValue {
     fn clone(&self) -> Self {

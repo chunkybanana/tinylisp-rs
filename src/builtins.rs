@@ -101,8 +101,6 @@ macro_rules! builtin {
 
             if $(arg_to_check!(eval_args.${index()}, $type))&&* {
                 // damnit
-                /*let head = eval_args.0;
-                let tail = eval_args.1.to_ll_ref();*/
                 $(
                     let $arg = arg_to_unwrap!(eval_args.${index()}, $type);
                 )*
@@ -230,15 +228,15 @@ pub const BUILTIN_LIST: &[(&str, Builtin, BuiltinImpl)] = &[
         fn Disp as disp (env, value: any) => {
             env.println(format!("{value}")); Ok(PackedValue::nil())
         }
-    }, /*
-       builtin! {
-           macro Load as load (env, value: str) => {
-               match env.load_file(lookup_str(*value).to_string()) {
-                   Ok(_) => Ok(PackedValue::nil()),
-                   Err(err) => Err(err)
-               }
-           }
-       },*/
+    },
+    builtin! {
+        macro Load as load (env, value: str) => {
+            match env.load_file(lookup_str(value).to_string()) {
+                Ok(_) => Ok(PackedValue::nil()),
+                Err(err) => Err(err)
+            }
+        }
+    },
     ("comment", Builtin::Comment, |_env, _args| {
         Ok(PackedValue::nil())
     }),
@@ -436,7 +434,7 @@ mod tests {
         );
         println!("{:?}", env.settings.output.get_output());
     }
-    /*
+
     #[test]
     fn load() {
         let mut env = Env::new();
@@ -463,7 +461,7 @@ mod tests {
         // and also test stdlib
         assert_eval!(env, (load library), ());
         assert_eval!(env, tinylisp, awesome);
-    }*/
+    }
 
     #[test]
     fn comment() {
