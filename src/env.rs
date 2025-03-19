@@ -31,7 +31,7 @@ pub struct EnvSettings {
     pub output: Box<dyn Output>,
 }
 
-type Dict = IntMap<usize, PackedValue>;
+type Dict = IntMap<u32, PackedValue>;
 pub struct Env {
     pub global_dict: Dict,
     local_scopes: Vec<Dict>, // literally a call stack
@@ -216,7 +216,7 @@ impl Env {
         }
     }
 
-    fn lookup(&self, key: usize) -> ValueResult {
+    fn lookup(&self, key: u32) -> ValueResult {
         self.local_scopes
             .last()
             .and_then(|dict| dict.get(&key))

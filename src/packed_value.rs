@@ -61,7 +61,7 @@ impl Display for Builtin {
 // DIY string interning
 pub struct StringInterner {
     str_refs: Vec<&'static str>, // map from int to str
-    string_to_int: HashMap<String, usize>,
+    string_to_int: HashMap<String, u32>,
 }
 
 impl StringInterner {
@@ -71,19 +71,19 @@ impl StringInterner {
             string_to_int: HashMap::new(),
         }
     }
-    pub fn string_to_ref(&mut self, str: String) -> usize {
+    pub fn string_to_ref(&mut self, str: String) -> u32 {
         if let Some(index) = self.string_to_int.get(&str) {
             return *index;
         }
         let str_ref = &*str.clone().leak();
         self.str_refs.push(str_ref);
 
-        let index = self.str_refs.len() - 1;
+        let index = (self.str_refs.len() - 1) as u32;
         self.string_to_int.insert(str, index);
         index
     }
-    pub fn ref_to_string(&self, index: usize) -> &'static str {
-        self.str_refs[index]
+    pub fn ref_to_string(&self, index: u32) -> &'static str {
+        self.str_refs[index as usize]
     }
 }
 
@@ -94,7 +94,7 @@ thread_local! {
     pub static POOL: RefCell<Pool<Value>> = RefCell::new(Pool::new(1 << 20));*/
 }
 
-pub fn lookup_str(index: usize) -> &'static str {
+pub fn lookup_str(index: u32) -> &'static str {
     STRING_INTERNER.with_borrow(|interner| interner.ref_to_string(index))
 }
 
@@ -104,7 +104,6 @@ pub struct PackedValue(u64);
 
 // I guess we doin C now
 
-const TYPE_LIST: u64 = 0;
 const TYPE_NUM: u64 = 0b01 << 62;
 const TYPE_NAME: u64 = 0b10 << 62;
 const TYPE_BUILTIN: u64 = 0b11 << 62;
@@ -112,6 +111,7 @@ const TYPE_BUILTIN: u64 = 0b11 << 62;
 // the exact ordering of this is very important, as we perform transmutations to it for typecheck purposes
 #[repr(u8)]
 #[derive(PartialEq, Debug)]
+#[allow(dead_code)] // transmutation ≠ initialisation
 pub enum Type {
     List,
     Num,
@@ -137,7 +137,7 @@ impl PackedValue {
         PackedValue(TYPE_NUM | represented_int)
     }
 
-    pub fn from_name(ind: usize) -> Self {
+    pub fn from_name(ind: u32) -> Self {
         PackedValue(TYPE_NAME | (ind as u64))
     }
 
@@ -148,7 +148,7 @@ impl PackedValue {
     pub fn from_ll(ll: Rc<LinkedList>) -> Self {
         unsafe { transmute::<Rc<LinkedList>, Self>(ll) }
     }
-
+    #[allow(dead_code)]
     pub fn from_builtin(builtin: Builtin) -> Self {
         let int = unsafe { transmute::<Builtin, u8>(builtin) };
         PackedValue(TYPE_BUILTIN | (int as u64))
@@ -193,8 +193,8 @@ impl PackedValue {
         (untagged as i64) - TWO_POW_61
     }
 
-    pub fn to_name(&self) -> usize {
-        (self.0 & UNTAGGED_MASK) as usize
+    pub fn to_name(&self) -> u32 {
+        self.0 as u32 // truncated
     }
 
     pub fn _type(&self) -> Type {
