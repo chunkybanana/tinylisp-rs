@@ -13,6 +13,7 @@ use std::{
     env,
     fs::read_to_string,
     ops::Deref,
+    os::macos::raw,
     path::{Path, PathBuf},
     rc::Rc,
     sync::LazyLock,
@@ -291,30 +292,18 @@ impl Env {
     fn call_info(
         &mut self,
         function: &Rc<LinkedList>,
-        raw_args: &Rc<LinkedList>,
-    ) -> Result<(PackedValue, PackedValue, Vec<PackedValue>), Error> {
+    ) -> Result<(PackedValue, PackedValue, bool), Error> {
         let func_list = function.to_vec();
 
         match func_list.len() {
-            2 => Ok((
-                func_list[0].clone(),
-                func_list[1].clone(),
-                raw_args
-                    .iter()
-                    .map(|val| self.eval(val))
-                    .collect::<Result<Vec<PackedValue>, Error>>()?,
-            )),
+            2 => Ok((func_list[0].clone(), func_list[1].clone(), false)),
             3 => {
                 if !func_list[0].is_nil() {
                     Err(Error::_MalformedFunctionBody(
                         "macro head is not nil".to_owned(),
                     ))?;
                 }
-                Ok((
-                    func_list[1].clone(),
-                    func_list[2].clone(),
-                    raw_args.copy_to_vec(),
-                ))
+                Ok((func_list[1].clone(), func_list[2].clone(), true))
             }
             0 | 1 => Err(Error::_MalformedFunctionBody(
                 "function body missing".to_owned(),
@@ -326,21 +315,45 @@ impl Env {
     }
 
     // Parse parameters and init the local dict for a function call
-    fn get_local_dict(params: &PackedValue, args: Vec<PackedValue>) -> Result<Dict, Error> {
+    fn get_local_dict(
+        &mut self,
+        params: &PackedValue,
+        raw_args: Rc<LinkedList>,
+        is_macro: bool,
+    ) -> Result<Dict, Error> {
         let mut local_dict: Dict = IntMap::default();
 
         match params._type() {
             Type::Name => {
-                local_dict.insert(params.to_name(), PackedValue::from_vec(&args));
+                local_dict.insert(
+                    params.to_name(),
+                    if is_macro {
+                        PackedValue::from_ll(raw_args)
+                    } else {
+                        // if I had implemented a proper FromIterator for PackedValue this'd be nicer
+                        PackedValue::from_vec(
+                            &raw_args
+                                .iter()
+                                .map(|val| self.eval(val))
+                                .collect::<Result<Vec<_>, _>>()?,
+                        )
+                    },
+                );
             }
             Type::List => {
                 let list = params.to_ll_ref();
-                let arg_count = args.len();
-                for val in list.iter().zip_longest(args) {
+                for val in list.iter().zip_longest(raw_args.iter()) {
                     match val {
                         EitherOrBoth::Both(name, param) => {
                             if name.is_str() {
-                                local_dict.insert(name.to_name(), param.clone());
+                                local_dict.insert(
+                                    name.to_name(),
+                                    if is_macro {
+                                        param.clone()
+                                    } else {
+                                        self.eval(param)?
+                                    },
+                                );
                             } else {
                                 Err(Error::_FunctionCall(format!(
                                     "malformed parameters: expected str, was {}",
@@ -351,7 +364,7 @@ impl Env {
                         _ => Err(Error::_FunctionCall(format!(
                             "wrong number of args passed: expected {}, got {}",
                             list.to_vec().len(),
-                            arg_count
+                            raw_args.to_vec().len()
                         )))?,
                     }
                 }
@@ -375,16 +388,19 @@ impl Env {
 
         // When we reach the point where we want to perform a tail call, we continue and return to this point
         'tco: loop {
-            let (params, mut body, args) = self.call_info(&function, &raw_args)?;
+            let (params, mut body, is_macro) = self.call_info(&function)?;
 
             // Once we know we're doing a tail call (i.e. this loop has run more than once)
             // We want to pop the scope from the previous tail call after evaluating this one's args
+
+            let new_dict = self.get_local_dict(&params, raw_args, is_macro)?;
+
             if in_tail_call {
                 self.local_scopes.pop();
             }
             in_tail_call = true;
 
-            self.local_scopes.push(Env::get_local_dict(&params, args)?);
+            self.local_scopes.push(new_dict);
 
             // Eliminate if / evals from the body
             'elim: loop {
