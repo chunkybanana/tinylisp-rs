@@ -235,6 +235,14 @@ impl PackedValue {
     }
 }
 
+impl Drop for PackedValue {
+    fn drop(&mut self) {
+        if self.is_list() {
+            println!("dropping list {self}")
+        }
+    }
+}
+
 // We can't quite get away with directly bit-copying these - as that wouldn't update the Rcs - but we can get very close.
 // To clone a PackedValue, all we need to do is check if the underlying representation is an Rc, and if so transmute that and clone it
 // then copy the bits directly

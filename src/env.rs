@@ -289,21 +289,21 @@ impl Env {
 
     // Gets the relevant parameters to call a user-defined function
     // todo: maybe don't use vecs?
-    fn call_info(
+    fn call_info<'a>(
         &mut self,
-        function: &Rc<LinkedList>,
-    ) -> Result<(PackedValue, PackedValue, bool), Error> {
+        function: &'a Rc<LinkedList>,
+    ) -> Result<(&'a PackedValue, PackedValue, bool), Error> {
         let func_list = function.to_vec();
 
         match func_list.len() {
-            2 => Ok((func_list[0].clone(), func_list[1].clone(), false)),
+            2 => Ok((func_list[0], func_list[1].clone(), false)),
             3 => {
                 if !func_list[0].is_nil() {
                     Err(Error::_MalformedFunctionBody(
                         "macro head is not nil".to_owned(),
                     ))?;
                 }
-                Ok((func_list[1].clone(), func_list[2].clone(), true))
+                Ok((func_list[1], func_list[2].clone(), true))
             }
             0 | 1 => Err(Error::_MalformedFunctionBody(
                 "function body missing".to_owned(),
@@ -393,7 +393,7 @@ impl Env {
             // Once we know we're doing a tail call (i.e. this loop has run more than once)
             // We want to pop the scope from the previous tail call after evaluating this one's args
 
-            let new_dict = self.get_local_dict(&params, raw_args, is_macro)?;
+            let new_dict = self.get_local_dict(params, raw_args, is_macro)?;
 
             if in_tail_call {
                 self.local_scopes.pop();
