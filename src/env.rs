@@ -251,7 +251,7 @@ impl Env {
         let result = if function.is_builtin() {
             self.call_builtin(function.to_builtin(), raw_args)
         } else if function.is_list() {
-            self.call_function(function.to_ll_ref().clone(), Rc::clone(raw_args))
+            self.call_function(function.to_ll_ref(), raw_args)
         } else {
             Err(Error::CalledNonFunction {
                 name: format!("{}", head),
@@ -293,32 +293,40 @@ impl Env {
         &mut self,
         function: &'a Rc<LinkedList>,
     ) -> Result<(&'a PackedValue, PackedValue, bool), Error> {
-        let func_list = function.to_vec();
+        let mut iter = function.iter();
 
-        match func_list.len() {
-            2 => Ok((func_list[0], func_list[1].clone(), false)),
-            3 => {
-                if !func_list[0].is_nil() {
-                    Err(Error::_MalformedFunctionBody(
-                        "macro head is not nil".to_owned(),
-                    ))?;
-                }
-                Ok((func_list[1], func_list[2].clone(), true))
-            }
-            0 | 1 => Err(Error::_MalformedFunctionBody(
+        let (arg0, arg1, arg2) = (iter.next(), iter.next(), iter.next());
+
+        if arg1.is_none() {
+            Err(Error::_MalformedFunctionBody(
                 "function body missing".to_owned(),
-            ))?,
-            len => Err(Error::_MalformedFunctionBody(format!(
-                "length is {len} when it should be 2 or 3"
-            )))?,
+            ))?
         }
+
+        if iter.next().is_some() {
+            Err(Error::_MalformedFunctionBody(format!(
+                "length is {} when it should be 2 or 3",
+                function.iter().collect::<Vec<_>>().len()
+            )))?
+        }
+
+        if arg2.is_some() {
+            if !arg0.unwrap().is_nil() {
+                Err(Error::_MalformedFunctionBody(
+                    "macro head is not nil".to_owned(),
+                ))?;
+            }
+            return Ok((arg1.unwrap(), arg2.unwrap().clone(), true));
+        }
+
+        return Ok((arg0.unwrap(), arg1.unwrap().clone(), false));
     }
 
     // Parse parameters and init the local dict for a function call
     fn get_local_dict(
         &mut self,
         params: &PackedValue,
-        raw_args: Rc<LinkedList>,
+        raw_args: &Rc<LinkedList>,
         is_macro: bool,
     ) -> Result<Dict, Error> {
         let mut local_dict: Dict = IntMap::default();
@@ -328,7 +336,7 @@ impl Env {
                 local_dict.insert(
                     params.to_name(),
                     if is_macro {
-                        PackedValue::from_ll(raw_args)
+                        PackedValue::from_ll(raw_args.clone())
                     } else {
                         // if I had implemented a proper FromIterator for PackedValue this'd be nicer
                         PackedValue::from_vec(
@@ -381,27 +389,15 @@ impl Env {
     // Inlining this is fairly consistently slower. I have no idea why
     fn call_function(
         &mut self,
-        mut function: Rc<LinkedList>,
-        mut raw_args: Rc<LinkedList>,
+        function: &Rc<LinkedList>,
+        raw_args: &Rc<LinkedList>,
     ) -> ValueResult {
-        let mut in_tail_call = false;
+        let (params, mut body, is_macro) = self.call_info(function)?;
+        let new_dict = self.get_local_dict(params, raw_args, is_macro)?;
+        self.local_scopes.push(new_dict);
 
         // When we reach the point where we want to perform a tail call, we continue and return to this point
         'tco: loop {
-            let (params, mut body, is_macro) = self.call_info(&function)?;
-
-            // Once we know we're doing a tail call (i.e. this loop has run more than once)
-            // We want to pop the scope from the previous tail call after evaluating this one's args
-
-            let new_dict = self.get_local_dict(params, raw_args, is_macro)?;
-
-            if in_tail_call {
-                self.local_scopes.pop();
-            }
-            in_tail_call = true;
-
-            self.local_scopes.push(new_dict);
-
             // Eliminate if / evals from the body
             'elim: loop {
                 // if we hit a function call, eval the function and check
@@ -415,8 +411,13 @@ impl Env {
                     if func.is_list() {
                         // user-defined function - attempt to perform a tail call
                         // here we do want to take ownership of the ll, destroying the PackedValue - so use into_ll
-                        function = func.into_ll();
-                        raw_args = Rc::clone(fn_args);
+                        body = {
+                            let (params, body_, is_macro) = self.call_info(func.to_ll_ref())?;
+                            let new_dict = self.get_local_dict(params, fn_args, is_macro)?;
+                            self.local_scopes.pop();
+                            self.local_scopes.push(new_dict);
+                            body_
+                        };
                         continue 'tco;
                     } else if func.is_builtin() {
                         let builtin = func.to_builtin();
