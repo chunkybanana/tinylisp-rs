@@ -238,7 +238,9 @@ impl PackedValue {
 impl Drop for PackedValue {
     fn drop(&mut self) {
         if self.is_list() {
-            println!("dropping list {self}")
+            unsafe {
+                Rc::decrement_strong_count(Rc::as_ptr(self.to_ll_ref()));
+            }
         }
     }
 }
