@@ -9,7 +9,7 @@
 // - Builtins are stored as bits 11 followed by an enum member. this is overkill
 
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::HashMap,
     fmt::{self, Display},
     mem::transmute,
@@ -235,11 +235,35 @@ impl PackedValue {
     }
 }
 
+// Dummy struct of the same size as the internal RcBox pointed to by an Rc,
+// so that std::ptr::drop_in_place deallocates the right size
+#[allow(dead_code)]
+struct DummyRcBox {
+    a: usize,
+    b: usize,
+    c: usize,
+    d: usize,
+}
+
 impl Drop for PackedValue {
     fn drop(&mut self) {
         if self.is_list() {
             unsafe {
-                Rc::decrement_strong_count(Rc::as_ptr(self.to_ll_ref()));
+                // Using the Rc API to decrement a reference count is somewhat slow, as it has a bunch of safety checks.
+                // We don't care about any of that.
+
+                // Rc<LinkedList>s are laid out as { strong: Cell<usize>, weak: Cell<usize>, value: LinkedList },
+                // and we decrement the first cell
+                // Since the ordering of struct fields is implementation-dependent, this is undefined behaviour
+                // but it's _probably_ fine
+                let cell = &*(self.0 as *const Cell<usize>);
+                let new_count = cell.get() - 1;
+                cell.set(new_count);
+
+                // By casting to a struct the same size as the underlying Rc, we can drop it
+                if new_count == 0 {
+                    std::ptr::drop_in_place(self.0 as *mut DummyRcBox);
+                }
             }
         }
     }
