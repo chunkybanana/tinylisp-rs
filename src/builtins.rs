@@ -18,8 +18,11 @@ macro_rules! arg_to_unwrap {
     ($name:expr, str) => {
         $name.to_name()
     };
-    ($name:expr, list) => {
+    ($name:expr, list_ref) => {
         $name.to_ll_ref()
+    };
+    ($name:expr, list) => {
+        $name.into_ll()
     };
 }
 
@@ -32,6 +35,9 @@ macro_rules! arg_to_check {
     };
     ($name:expr, str) => {
         $name.is_str()
+    };
+    ($name:expr, list_ref) => {
+        $name.is_list()
     };
     ($name:expr, list) => {
         $name.is_list()
@@ -133,16 +139,16 @@ fn get_types(args: &[PackedValue]) -> String {
 pub const BUILTIN_LIST: &[(&str, Builtin, BuiltinImpl)] = &[
     builtin! {
         fn Cons as c (_env, head: any, tail: list) => {
-            Ok(PackedValue::from_ll(LinkedList::cons(&head, tail)))
+            Ok(PackedValue::from_ll(LinkedList::cons(head, tail)))
         }
     },
     builtin! {
-        fn Head as h (_env, list: list) => {
+        fn Head as h (_env, list: list_ref) => {
             Ok(list.head())
         }
     },
     builtin! {
-        fn Tail as t (_env, list: list) => {
+        fn Tail as t (_env, list: list_ref) => {
             Ok(PackedValue::from_ll(list.tail()))
         }
     },

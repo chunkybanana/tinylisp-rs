@@ -14,10 +14,10 @@ pub fn parse(tokens: &mut impl Iterator<Item = String>) -> Rc<LinkedList> {
             } else {
                 match token.parse::<u64>() {
                     Ok(i) => PackedValue::from_int(i.try_into().unwrap()),
-                    Err(_) => PackedValue::from_str(token.clone()),
+                    Err(_) => PackedValue::from_str(token),
                 }
             };
-            LinkedList::cons(&element, &parse(tokens))
+            LinkedList::cons(element, parse(tokens))
         }
     }
 }

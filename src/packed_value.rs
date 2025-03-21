@@ -360,11 +360,8 @@ impl LinkedList {
         }
     }
 
-    pub fn cons(head: &PackedValue, tail: &Rc<LinkedList>) -> Rc<LinkedList> {
-        Rc::new(LinkedList::List {
-            head: head.clone(),
-            tail: Rc::clone(tail),
-        })
+    pub fn cons(head: PackedValue, tail: Rc<LinkedList>) -> Rc<LinkedList> {
+        Rc::new(LinkedList::List { head, tail })
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &PackedValue> {

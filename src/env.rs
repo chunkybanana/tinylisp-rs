@@ -111,6 +111,8 @@ struct LocalDict {
 }
 
 // Local dicts just use a linear search - the cost of instantiating and using a hashmap isn't worthwhile here
+// NOTE: One of these is allocated for every function, and we only need one allocation per function instance in the call stack
+// so a potential optimisation could be to associate a vec of mutable dicts with each (called) function
 impl LocalDict {
     fn get(&self, key: &u32) -> Option<&PackedValue> {
         for entry in &self.vals {
@@ -178,8 +180,6 @@ impl Env {
     // the `load` builtin - eval the contents of a file
     // the standard library is just statically linked - we essentially
     pub fn load_file(&mut self, path: String) -> Result<(), Error> {
-        //println!("loading {path}");
-
         if !path.ends_with(".tl") {
             return self.load_file(path + ".tl");
         }
@@ -193,8 +193,6 @@ impl Env {
             return Ok(());
         }
         self.loaded_modules.insert(full_path.clone());
-
-        //println!("full path {full_path:?} {:?}", self.module_stack);
 
         if let Some(code) = STDLIB.get(full_path.to_str().unwrap()) {
             let parent = full_path.parent().unwrap(); // if this errors something has gone very wrong
