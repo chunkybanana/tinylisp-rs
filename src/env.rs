@@ -13,7 +13,6 @@ use std::{
     env,
     fs::read_to_string,
     ops::Deref,
-    os::macos::raw,
     path::{Path, PathBuf},
     rc::Rc,
     sync::LazyLock,
@@ -35,7 +34,7 @@ pub struct EnvSettings {
 type Dict = IntMap<u32, PackedValue>;
 pub struct Env {
     pub global_dict: Dict,
-    local_scopes: Vec<Dict>, // literally a call stack
+    local_scopes: Vec<LocalDict>, // literally a call stack
     loaded_modules: HashSet<PathBuf>,
     module_stack: Vec<PathBuf>,
     pub settings: EnvSettings,
@@ -43,6 +42,7 @@ pub struct Env {
 
 pub trait Output {
     fn print(&mut self, str: String);
+    #[allow(dead_code)]
     fn get_output(&mut self) -> Vec<String> {
         vec![]
     }
@@ -61,6 +61,7 @@ pub struct DummyOutput {
     pub vec: Vec<String>,
 }
 
+#[allow(dead_code)]
 // the JANK I have had to go through to get an object whose output can be extracted...
 impl DummyOutput {
     pub fn new() -> DummyOutput {
@@ -100,6 +101,33 @@ static STDLIB: LazyLock<HashMap<&str, &str>> = LazyLock::new(|| {
     ])
 });
 
+struct Entry {
+    key: u32,
+    val: PackedValue,
+}
+
+struct LocalDict {
+    vals: Vec<Entry>,
+}
+
+// Local dicts just use a linear search - the cost of instantiating and using a hashmap isn't worthwhile here
+impl LocalDict {
+    fn get(&self, key: &u32) -> Option<&PackedValue> {
+        for entry in &self.vals {
+            if key == &entry.key {
+                return Some(&entry.val);
+            }
+        }
+        None
+    }
+    fn new() -> Self {
+        Self { vals: vec![] }
+    }
+    fn insert(&mut self, key: u32, val: PackedValue) {
+        self.vals.push(Entry { key, val })
+    }
+}
+
 impl Env {
     pub fn build_global_dict() -> Dict {
         let mut dict: Dict = IntMap::default();
@@ -134,6 +162,7 @@ impl Env {
         }
     }
 
+    #[allow(dead_code)]
     pub fn dummy() -> Env {
         Env::from_settings(EnvSettings {
             suppress_top_level: false,
@@ -319,7 +348,7 @@ impl Env {
             return Ok((arg1.unwrap(), arg2.unwrap().clone(), true));
         }
 
-        return Ok((arg0.unwrap(), arg1.unwrap().clone(), false));
+        Ok((arg0.unwrap(), arg1.unwrap().clone(), false))
     }
 
     // Parse parameters and init the local dict for a function call
@@ -328,8 +357,8 @@ impl Env {
         params: &PackedValue,
         raw_args: &Rc<LinkedList>,
         is_macro: bool,
-    ) -> Result<Dict, Error> {
-        let mut local_dict: Dict = IntMap::default();
+    ) -> Result<LocalDict, Error> {
+        let mut local_dict = LocalDict::new();
 
         match params._type() {
             Type::Name => {
@@ -410,7 +439,6 @@ impl Env {
 
                     if func.is_list() {
                         // user-defined function - attempt to perform a tail call
-                        // here we do want to take ownership of the ll, destroying the PackedValue - so use into_ll
                         body = {
                             let (params, body_, is_macro) = self.call_info(func.to_ll_ref())?;
                             let new_dict = self.get_local_dict(params, fn_args, is_macro)?;
@@ -648,7 +676,7 @@ mod tests {
             env.settings.output.get_output()
         );
     }
-    /*
+
     #[test]
     fn test_warnings() {
         let mut env = Env::from_settings(EnvSettings {
@@ -849,5 +877,5 @@ mod tests {
 
 (format (string (list 40 100 101 102 32 100 105 118 105 100 101 115 63 32 40 108 97 109 98 100 97 32 40 100 105 118 105 115 111 114 32 109 117 108 116 105 112 108 101 41 32 40 105 102 32 40 110 101 103 97 116 105 118 101 63 32 100 105 118 105 115 111 114 41 32 40 100 105 118 105 100 101 115 63 32 40 110 101 103 32 100 105 118 105 115 111 114 41 32 109 117 108 116 105 112 108 101 41 32 40 105 102 32 40 110 101 103 97 116 105 118 101 63 32 109 117 108 116 105 112 108 101 41 32 40 100 105 118 105 100 101 115 63 32 100 105 118 105 115 111 114 32 40 110 101 103 32 109 117 108 116 105 112 108 101 41 41 32 40 105 102 32 40 108 101 115 115 63 32 109 117 108 116 105 112 108 101 32 100 105 118 105 115 111 114 41 32 40 122 101 114 111 63 32 109 117 108 116 105 112 108 101 41 32 40 100 105 118 105 100 101 115 63 32 100 105 118 105 115 111 114 32 40 115 117 98 50 32 109 117 108 116 105 112 108 101 32 100 105 118 105 115 111 114 41 41 41 41 41 41 41)))");
         println!("Elapsed: {:.4?}", now.elapsed());
-    }*/
+    }
 }

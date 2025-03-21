@@ -1,6 +1,6 @@
 # tinylisp-rs
 
-This is a port of DLosc's [tinylisp](https://github.com/dloscutoff/Esolangs/tree/master/tinylisp) to Rust. As such, it attempts to maintain compatibility with the provided Python interpreter by default.
+This is a port of DLosc's [tinylisp](https://github.com/dloscutoff/Esolangs/tree/master/tinylisp) to Rust, able to execute programs around forty times faster than the reference implementation. It generally attempts to maintain compatibility with the provided Python interpreter by default.
 
 
 Usage: 

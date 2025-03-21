@@ -252,10 +252,9 @@ impl Drop for PackedValue {
                 // Using the Rc API to decrement a reference count is somewhat slow, as it has a bunch of safety checks.
                 // We don't care about any of that.
 
-                // Rc<LinkedList>s are laid out as { strong: Cell<usize>, weak: Cell<usize>, value: LinkedList },
+                // RcInners are laid out as { strong: Cell<usize>, weak: Cell<usize>, value: LinkedList },
                 // and we decrement the first cell
-                // Since the ordering of struct fields is implementation-dependent, this is undefined behaviour
-                // but it's _probably_ fine
+                // Since they're #[repr(C)], this is guaranteed to be the first cell, so it's _probably_ not undefined behaviour
                 let cell = &*(self.0 as *const Cell<usize>);
                 let new_count = cell.get() - 1;
                 cell.set(new_count);
