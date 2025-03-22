@@ -13,7 +13,7 @@ use std::{
     collections::HashMap,
     fmt::{self, Display},
     mem::transmute,
-    ops::Deref,
+    ops::{Add, Deref},
     rc::Rc,
 };
 
@@ -196,7 +196,7 @@ impl PackedValue {
     }
 
     pub fn _type(&self) -> Type {
-        unsafe { std::mem::transmute::<u8, Type>(((self.0 & BITMASK_TYPE) >> 62) as u8) }
+        unsafe { transmute::<u8, Type>(((self.0 & BITMASK_TYPE) >> 62) as u8) }
     }
 
     pub fn tl_type(&self) -> &'static str {
@@ -233,14 +233,14 @@ impl PackedValue {
     }
 }
 
-// Dummy struct of the same size as the internal RcBox pointed to by an Rc,
-// so that std::ptr::drop_in_place deallocates the right size
 #[allow(dead_code)]
+#[repr(C)]
+// In the case that we want to drop
 struct DummyRcBox {
-    a: usize,
-    b: usize,
-    c: usize,
-    d: usize,
+    c1: Cell<usize>,
+    c2: Cell<usize>,
+    x1: usize,
+    x2: usize,
 }
 
 impl Drop for PackedValue {
@@ -250,16 +250,34 @@ impl Drop for PackedValue {
                 // Using the Rc API to decrement a reference count is somewhat slow, as it has a bunch of safety checks.
                 // We don't care about any of that.
 
-                // RcInners are laid out as { strong: Cell<usize>, weak: Cell<usize>, value: LinkedList },
-                // and we decrement the first cell
-                // Since they're #[repr(C)], this is guaranteed to be the first cell, so it's _probably_ not undefined behaviour
-                let cell = &*(self.0 as *const Cell<usize>);
-                let new_count = cell.get() - 1;
-                cell.set(new_count);
+                let mut to_drop = self.0;
 
-                // By casting to a struct the same size as the underlying Rc, we can drop it
-                if new_count == 0 {
-                    std::ptr::drop_in_place(self.0 as *mut DummyRcBox);
+                loop {
+                    // RcInners are laid out as { strong: Cell<usize>, weak: Cell<usize>, value: LinkedList },
+                    // and we decrement the first cell
+                    // Since they're #[repr(C)], this is guaranteed to be the first cell, so it's _probably_ not undefined behaviour
+                    let cell = &*(to_drop as *const Cell<usize>);
+                    let new_count = cell.get() - 1;
+                    cell.set(new_count);
+
+                    // By casting to a struct similar to the underlying RcInner, we can drop it, and trigger the drop for its children
+                    if new_count == 0 {
+                        let ll = &*((to_drop + 16) as *mut LinkedList);
+                        if let LinkedList::List { head: _, tail } = ll {
+                            // If it's non-null, it contains a Rc<LinkedList> whose reference pointer may need to be decremented
+                            // and rather than directly dropping this struct, which would recursively trigger Rc::drop_slow
+                            // and blow up the call stack, we want to continue the loop and drop the next item in the list
+                            let new_drop = std::mem::transmute_copy::<Rc<LinkedList>, u64>(tail);
+                            std::ptr::drop_in_place(to_drop as *mut DummyRcBox);
+
+                            to_drop = new_drop;
+                            continue;
+                        } else {
+                            // Otherwise, if it's null, we can just drop it normally without caring about the underlying Rc
+                            std::ptr::drop_in_place(to_drop as *mut DummyRcBox);
+                        }
+                    }
+                    break;
                 }
             }
         }
@@ -470,5 +488,25 @@ mod tests {
 
         assert_eq!(ll.head(), val!(5));
         assert_eq!(ll.tail(), LinkedList::from_vec(&list[1..]));
+    }
+
+    #[test]
+    fn test_ref_counts() {
+        let ls = LinkedList::from_vec(&[val!(5), val!(3), val!(2)]);
+
+        let tail2 = if let LinkedList::List { head: _, tail } = Rc::deref(&ls) {
+            assert_eq!(Rc::strong_count(tail), 1);
+            tail.clone()
+        } else {
+            panic!()
+        };
+
+        assert_eq!(Rc::strong_count(&tail2), 2);
+
+        let val2 = PackedValue::from_ll(ls);
+
+        drop(val2);
+
+        assert_eq!(Rc::strong_count(&tail2), 1); // ensure that, when the PackedValue containing the above is dropped, the tail's refcount is dropped
     }
 }
