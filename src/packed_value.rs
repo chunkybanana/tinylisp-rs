@@ -13,7 +13,7 @@ use std::{
     collections::HashMap,
     fmt::{self, Display},
     mem::transmute,
-    ops::{Add, Deref},
+    ops::Deref,
     rc::Rc,
 };
 
@@ -343,10 +343,6 @@ impl LinkedList {
         self.iter().collect::<Vec<_>>()
     }
 
-    pub fn copy_to_vec(&self) -> Vec<PackedValue> {
-        self.iter().cloned().collect::<Vec<_>>()
-    }
-
     pub fn from_vec(vec: &[PackedValue]) -> Rc<LinkedList> {
         let mut tail = LinkedList::nil();
         for val in vec.iter().rev() {
@@ -484,7 +480,7 @@ mod tests {
             PackedValue::from_ll(Rc::clone(&ll)),
             val!((5 3 ((3) cutie)))
         );
-        assert_eq!(ll.copy_to_vec(), list);
+        assert_eq!(ll.iter().cloned().collect::<Vec<_>>(), list);
 
         assert_eq!(ll.head(), val!(5));
         assert_eq!(ll.tail(), LinkedList::from_vec(&list[1..]));

@@ -18,8 +18,9 @@ use std::{
     sync::LazyLock,
 };
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone, clap::ValueEnum, Default)]
 pub enum WarningLevel {
+    #[default]
     Allow,
     Suppress,
     Strict,
@@ -29,6 +30,7 @@ pub struct EnvSettings {
     pub warning: WarningLevel,
     pub suppress_top_level: bool,
     pub output: Box<dyn Output>,
+    pub allow_multiline: bool,
 }
 
 type Dict = IntMap<u32, PackedValue>;
@@ -48,7 +50,7 @@ pub trait Output {
     }
 }
 
-struct DefaultOutput;
+pub struct DefaultOutput;
 
 impl Output for DefaultOutput {
     fn print(&mut self, str: String) {
@@ -142,11 +144,13 @@ impl Env {
         dict
     }
 
+    #[allow(dead_code)]
     pub fn default_settings() -> EnvSettings {
         EnvSettings {
             warning: WarningLevel::Strict,
             suppress_top_level: false,
             output: Box::new(DefaultOutput {}),
+            allow_multiline: true,
         }
     }
 
@@ -170,6 +174,7 @@ impl Env {
             suppress_top_level: false,
             warning: WarningLevel::Allow,
             output: Box::new(DummyOutput::new()),
+            allow_multiline: false,
         })
     }
 
@@ -218,10 +223,29 @@ impl Env {
         }
     }
 
-    fn exec(&mut self, code: &str) {
-        let ast = parse(&mut tokenise(code));
-        for expr in ast.iter() {
-            match self.eval(expr) {
+    pub fn exec(&mut self, code: &str) {
+        // todo: clean this up
+        let ast = if self.settings.allow_multiline
+            && let lines = code.split('\n')
+            && lines.clone().all(|l| {
+                l.chars().filter(|char| *char == '(').count()
+                    >= l.chars().filter(|char| *char == ')').count()
+            }) {
+            lines.collect::<Vec<_>>()
+        } else {
+            vec![code]
+        }
+        .iter()
+        .flat_map(|code| {
+            parse(&mut tokenise(code))
+                .iter()
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>();
+
+        for expr in ast {
+            match self.eval(&expr) {
                 Ok(val) => {
                     // and this is why I use nightly
                     if self.settings.suppress_top_level
@@ -239,7 +263,7 @@ impl Env {
                         self.println(format!("{val}"));
                     }
                 }
-                Err(err) => self.println(format!("{err:?}")),
+                Err(err) => self.println(format!("error: {err}")),
             }
         }
     }
@@ -290,7 +314,7 @@ impl Env {
             && let Err(error) = result
         {
             if self.settings.warning == WarningLevel::Allow {
-                self.println(format!("{error:?}"));
+                self.println(format!("error: {error}"));
             }
             return Ok(PackedValue::nil());
         }
@@ -644,7 +668,7 @@ mod tests {
 
         eval!(env, (d _zerolist (q ((num acc) (i num (_zerolist (s num 1) (c 0 acc)) acc)))));
         eval!(env, (d zerolist (q ((num) (_zerolist num ())))));
-        eval!(env, (zerolist 2500));
+        eval!(env, (zerolist 100000));
     }
 
     #[test]
@@ -663,6 +687,7 @@ mod tests {
             warning: WarningLevel::Strict,
             suppress_top_level: true,
             output: Box::new(DummyOutput::new()),
+            allow_multiline: true,
         });
 
         env.exec("() a (a 2 3) (disp 2) (d cutie (q evie))");
@@ -678,6 +703,7 @@ mod tests {
             warning: WarningLevel::Allow,
             suppress_top_level: true,
             output: Box::new(DummyOutput::new()),
+            allow_multiline: true,
         });
 
         env.exec("(c 5 (c 0 4))");
@@ -685,7 +711,7 @@ mod tests {
         assert_eq!(
             env.settings.output.get_output(),
             vec![
-                "BuiltinArgumentType(\"tried to call builtin c with (int, int), expected (any, list)\")",
+                "tried to call builtin c with (int, int), expected (any, list)",
                 "(5)"
             ]
         );
@@ -694,11 +720,47 @@ mod tests {
             warning: WarningLevel::Suppress,
             suppress_top_level: true,
             output: Box::new(DummyOutput::new()),
+            allow_multiline: true,
         });
 
         env.exec("(c 5 (c 0 4))");
 
         assert_eq!(env.settings.output.get_output(), vec!["(5)"]);
+    }
+
+    #[test]
+    fn test_multiline() {
+        let mut env = Env::from_settings(EnvSettings {
+            warning: WarningLevel::Strict,
+            suppress_top_level: true,
+            output: Box::new(DummyOutput::new()),
+            allow_multiline: true,
+        });
+        env.exec(
+            "(d x 5
+        (d y 7
+        (a x y",
+        );
+
+        assert_eq!(env.settings.output.get_output(), vec!["12"]);
+
+        let mut env = Env::from_settings(EnvSettings {
+            warning: WarningLevel::Strict,
+            suppress_top_level: false,
+            output: Box::new(DummyOutput::new()),
+            allow_multiline: false,
+        });
+
+        env.exec(
+            "(d x 5
+        (d y 7
+        (a x y",
+        );
+
+        assert_eq!(
+            env.settings.output.get_output(),
+            vec!["error: builtin d recieved 3 arguments, expected 2"]
+        );
     }
 
     #[test]

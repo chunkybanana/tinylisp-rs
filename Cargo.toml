@@ -12,6 +12,7 @@ debug = true
  tikv-jemallocator = "0.6"
 
 [dependencies]
+clap = { version = "4.5.32", features = ["derive"] }
 itertools = "0.14.0"
 nohash-hasher = "0.2.0"
 thiserror = "2.0.11"

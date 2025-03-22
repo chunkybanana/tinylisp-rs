@@ -19,3 +19,4 @@ Command-line options:
   - `strict` halts the program if any errors occur
 - `-c`, `--code`: Takes a literal string of code as input
 - `-T`, `--top-level-output`: Makes certain builtins - load, disp, def, comment - output at the top level when they would otherwise be suppressed
+- `-M`, `--no-multiline`: When multiline is enabled, the code can be interpreted as each line being its own expression, autocompleted with parentheses as necessary - this is a feature the reference implementation has for code golf purposes. This feature is enabled by default.
