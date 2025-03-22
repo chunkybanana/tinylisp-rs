@@ -423,73 +423,70 @@ impl Env {
         let new_dict = self.get_local_dict(params, raw_args, is_macro)?;
         self.local_scopes.push(new_dict);
 
-        // When we reach the point where we want to perform a tail call, we continue and return to this point
-        'tco: loop {
-            // Eliminate if / evals from the body
-            'elim: loop {
-                // if we hit a function call, eval the function and check
-                if body.is_list()
-                    && let f_call = body.to_ll_ref()
-                    && let LinkedList::List { head, tail } = Rc::deref(f_call)
-                {
-                    let func = self.eval(head)?;
-                    let fn_args = tail;
+        // We loop reducing an expression by a step, either eliminating an if/eval or attempting to perform a tail call,
+        // until we hit something that can't be eliminated
 
-                    if func.is_list() {
-                        // user-defined function - attempt to perform a tail call
-                        body = {
-                            let (params, body_, is_macro) = self.call_info(func.to_ll_ref())?;
-                            let new_dict = self.get_local_dict(params, fn_args, is_macro)?;
-                            self.local_scopes.pop();
-                            self.local_scopes.push(new_dict);
-                            body_
-                        };
-                        continue 'tco;
-                    } else if func.is_builtin() {
-                        let builtin = func.to_builtin();
-                        if builtin == Builtin::If {
-                            // due to various nonsense with the generated iterator somehow being owned by body - even though
-                            // it really shouldn't, considering it's behind a Rc - body needs to be assigned after
-                            // the iterator is dropped
-                            body = {
-                                let mut iter = fn_args.iter();
-                                let args = (iter.next(), iter.next(), iter.next());
-                                if args.2.is_none() || iter.next().is_some() {
-                                    Err(Error::BuiltinArgumentCount {
-                                        name: "if".to_owned(),
-                                        argc: fn_args.to_vec().len(),
-                                        expected: 3,
-                                    })?;
-                                }
-                                let cond = self.eval(args.0.unwrap())?;
-                                if cond.is_truthy() { args.1 } else { args.2 }
-                                    .unwrap()
-                                    .clone()
-                            };
-                            continue 'elim;
-                        } else if builtin == Builtin::Eval {
-                            body = {
-                                let mut iter = fn_args.iter();
-                                let arg = iter.next();
-                                if arg.is_none() || iter.next().is_some() {
-                                    Err(Error::BuiltinArgumentCount {
-                                        name: "eval".to_owned(),
-                                        argc: fn_args.to_vec().len(),
-                                        expected: 1,
-                                    })?;
-                                }
-                                self.eval(arg.unwrap())?
-                            };
-                            continue 'elim;
+        // if we hit a function call, eval the function and check
+        while body.is_list()
+            && let f_call = body.to_ll_ref()
+            && let LinkedList::List { head, tail } = Rc::deref(f_call)
+        {
+            let func = self.eval(head)?;
+            let fn_args = tail;
+
+            if func.is_list() {
+                // user-defined function - attempt to perform a tail call
+                body = {
+                    let (params, body_, is_macro) = self.call_info(func.to_ll_ref())?;
+                    let new_dict = self.get_local_dict(params, fn_args, is_macro)?;
+                    self.local_scopes.pop();
+                    self.local_scopes.push(new_dict);
+                    body_
+                };
+            } else if func.is_builtin() {
+                let builtin = func.to_builtin();
+                if builtin == Builtin::If {
+                    // due to various nonsense with the generated iterator somehow being owned by body - even though
+                    // it really shouldn't, considering it's behind a Rc - body needs to be assigned after
+                    // the iterator is dropped
+                    body = {
+                        let mut iter = fn_args.iter();
+                        let args = (iter.next(), iter.next(), iter.next());
+                        if args.2.is_none() || iter.next().is_some() {
+                            Err(Error::BuiltinArgumentCount {
+                                name: "if".to_owned(),
+                                argc: fn_args.to_vec().len(),
+                                expected: 3,
+                            })?;
                         }
-                    }
+                        let cond = self.eval(args.0.unwrap())?;
+                        if cond.is_truthy() { args.1 } else { args.2 }
+                            .unwrap()
+                            .clone()
+                    };
+                } else if builtin == Builtin::Eval {
+                    body = {
+                        let mut iter = fn_args.iter();
+                        let arg = iter.next();
+                        if arg.is_none() || iter.next().is_some() {
+                            Err(Error::BuiltinArgumentCount {
+                                name: "eval".to_owned(),
+                                argc: fn_args.to_vec().len(),
+                                expected: 1,
+                            })?;
+                        }
+                        self.eval(arg.unwrap())?
+                    };
+                } else {
+                    break;
                 }
+            } else {
                 break;
             }
-            let ret = self.eval(&body);
-            self.local_scopes.pop();
-            return ret;
         }
+        let ret = self.eval(&body);
+        self.local_scopes.pop();
+        ret
     }
 }
 

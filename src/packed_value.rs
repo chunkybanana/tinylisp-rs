@@ -90,8 +90,6 @@ impl StringInterner {
 // I apologise to the Rust gods
 thread_local! {
     pub static STRING_INTERNER: RefCell<StringInterner> = RefCell::new(StringInterner::new());
-    /*
-    pub static POOL: RefCell<Pool<Value>> = RefCell::new(Pool::new(1 << 20));*/
 }
 
 pub fn lookup_str(index: u32) -> &'static str {
@@ -446,6 +444,8 @@ mod tests {
         let int = PackedValue::from_int(-52);
         assert_eq!(int.to_int(), -52);
 
+        // if this gets stringified at any point it'll probably crash
+        // so uh don't do that
         let name = PackedValue::from_name(25);
         assert_eq!(name.to_name(), 25);
 

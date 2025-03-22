@@ -14,5 +14,4 @@ debug = true
 [dependencies]
 itertools = "0.14.0"
 nohash-hasher = "0.2.0"
-refpool = "0.4.3"
 thiserror = "2.0.11"
