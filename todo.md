@@ -5,6 +5,5 @@
 - [x] module loading
 
 potential optimisations:
-- something better than intmaps for small cases? maybe?
 - avoiding allocating a vec in assigning builtins, via iterators?
 - better string interning?

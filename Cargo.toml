@@ -6,7 +6,7 @@ version = "0.1.0"
 edition = "2024"
 
 [profile.release]
-debug = true
+lto = "fat"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
  tikv-jemallocator = "0.6"

@@ -154,6 +154,7 @@ impl Env {
         }
     }
 
+    #[allow(dead_code)]
     pub fn new() -> Env {
         Self::from_settings(Self::default_settings())
     }
@@ -711,7 +712,7 @@ mod tests {
         assert_eq!(
             env.settings.output.get_output(),
             vec![
-                "tried to call builtin c with (int, int), expected (any, list)",
+                "error: tried to call builtin c with (int, int), expected (any, list)",
                 "(5)"
             ]
         );

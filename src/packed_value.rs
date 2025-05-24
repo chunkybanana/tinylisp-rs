@@ -263,6 +263,7 @@ impl Drop for PackedValue {
                     // By casting to a struct similar to the underlying RcInner, we can drop it, and trigger the drop for its children
                     if new_count == 0 {
                         let ll = &*((to_drop + 16) as *mut LinkedList);
+                        // head is dropped here (I think?)
                         if let LinkedList::List { head: _, tail } = ll {
                             // If it's non-null, it contains a Rc<LinkedList> whose reference pointer may need to be decremented
                             // and rather than directly dropping this struct, which would recursively trigger Rc::drop_slow
@@ -496,6 +497,18 @@ mod tests {
         } else {
             panic!()
         };
+        assert_eq!(Rc::strong_count(&tail2), 2);
+
+        let v_tail = PackedValue::from_ll(tail2.clone());
+
+        let wrapped_tail = LinkedList::cons(v_tail, LinkedList::nil());
+
+        assert_eq!(Rc::strong_count(&tail2), 3);
+
+        drop(wrapped_tail);
+
+        // ensure that, when a linked list containing another is dropped, the head is properly dropped
+        // not actually sure why it _is_ dropped, but this works
 
         assert_eq!(Rc::strong_count(&tail2), 2);
 
