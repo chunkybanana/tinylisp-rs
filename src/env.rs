@@ -675,7 +675,7 @@ mod tests {
     #[test]
     fn test_exec() {
         let mut env = Env::dummy();
-        env.exec("() a (a 2 3) (disp 2) (d cutie (q evie))");
+        env.exec("() a (a 2 3) (disp 2) (d cutie (q ginger))");
         assert_eq!(
             vec!["()", "<built-in function a>", "5", "2", "()", "cutie"],
             env.settings.output.get_output()
@@ -691,7 +691,7 @@ mod tests {
             allow_multiline: true,
         });
 
-        env.exec("() a (a 2 3) (disp 2) (d cutie (q evie))");
+        env.exec("() a (a 2 3) (disp 2) (d cutie (q ginger))");
         assert_eq!(
             vec!["()", "<built-in function a>", "5", "2"],
             env.settings.output.get_output()
@@ -934,6 +934,15 @@ mod tests {
 
 
 (format (string (list 40 100 101 102 32 100 105 118 105 100 101 115 63 32 40 108 97 109 98 100 97 32 40 100 105 118 105 115 111 114 32 109 117 108 116 105 112 108 101 41 32 40 105 102 32 40 110 101 103 97 116 105 118 101 63 32 100 105 118 105 115 111 114 41 32 40 100 105 118 105 100 101 115 63 32 40 110 101 103 32 100 105 118 105 115 111 114 41 32 109 117 108 116 105 112 108 101 41 32 40 105 102 32 40 110 101 103 97 116 105 118 101 63 32 109 117 108 116 105 112 108 101 41 32 40 100 105 118 105 100 101 115 63 32 100 105 118 105 115 111 114 32 40 110 101 103 32 109 117 108 116 105 112 108 101 41 41 32 40 105 102 32 40 108 101 115 115 63 32 109 117 108 116 105 112 108 101 32 100 105 118 105 115 111 114 41 32 40 122 101 114 111 63 32 109 117 108 116 105 112 108 101 41 32 40 100 105 118 105 100 101 115 63 32 100 105 118 105 115 111 114 32 40 115 117 98 50 32 109 117 108 116 105 112 108 101 32 100 105 118 105 115 111 114 41 41 41 41 41 41 41)))");
+        println!("Elapsed: {:.4?}", now.elapsed());
+    }
+
+    #[test]
+    fn test_fibonacci() {
+        let now = Instant::now();
+        let mut env = Env::new();
+        eval!(env, (d fib (q ((n) (i (l n 2) n (a (fib (s n 1)) (fib (s n 2))))))));
+        eval!(env, (fib 40));
         println!("Elapsed: {:.4?}", now.elapsed());
     }
 }

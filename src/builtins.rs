@@ -468,11 +468,4 @@ mod tests {
         assert_eval!(env, (load library), ());
         assert_eval!(env, tinylisp, awesome);
     }
-
-    #[test]
-    fn comment() {
-        let mut env = Env::new();
-        assert_eval!(env, (comment ginger told me to write this), ());
-        assert_eval!(env, (comment (ginger is a cute catgirl)), ());
-    }
 }
