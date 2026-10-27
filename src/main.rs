@@ -19,8 +19,6 @@ mod env;
 mod packed_value;
 mod parse;
 
-// Pretty much all of this has been stolen from ginger's ferralisp - https://github.com/gingershaped/ferralisp/blob/main/src/main.rs
-// as she did a much better job than I did
 #[derive(Debug, Parser)]
 #[command(name = "tinylisp-rs")]
 struct Cli {
